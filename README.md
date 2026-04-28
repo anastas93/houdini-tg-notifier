@@ -1,31 +1,81 @@
 # Houdini → Telegram Notifier
 
-Плагин для Houdini (Octane::OctaneRenderSetup) — уведомления в Telegram:
-- ошибки и предупреждения из консоли в реальном времени
-- старт рендера: камера, кадры, путь файла
-- завершение рендера: имя и путь файла
+Плагин для Houdini + Octane — уведомления о рендере и ошибках прямо в Telegram.
+
+---
+
+## Возможности
+
+- 🔴 **Ошибки** (Error / Fatal) из консоли Houdini в реальном времени
+- 🟡 **Предупреждения** (Warning)
+- ℹ️ **Сообщения** (Message / print)
+- 🎬 **Старт рендера** — камера, диапазон кадров, путь файла
+- ✅ **Завершение рендера** — имя и путь файла
+- 📤 **Ручная отправка** последних записей лога
+- 💬 **Несколько чатов** — отправка одновременно в любое количество чатов/каналов
+- ⚙️ **UI панель** прямо в Houdini (Python Panel)
+- 🔄 **Автозапуск** при каждом старте Houdini
+
+---
 
 ## Файлы
 
-| Файл | Описание |
-|---|---|
-| `tg_notifier.py` | Ядро: мониторинг лога, Telegram API, поддержка нескольких чатов |
-| `tg_notifier_panel.py` | Python Panel UI для Houdini |
-| `123.py` | Автозапуск при старте Houdini (`Documents/houdiniXX.X/scripts/`) |
+| Файл | Куда положить | Описание |
+|---|---|---|
+| `tg_notifier.py` | `~/houdini_tg_notifier/` | Ядро: мониторинг лога, Telegram API |
+| `tg_notifier_panel.py` | `~/houdini_tg_notifier/` | Python Panel UI |
+| `123.py` | `~/Documents/houdini21.0/scripts/` | Автозапуск при старте Houdini |
+
+---
 
 ## Установка
 
-1. Скопировать папку в `~/houdini_tg_notifier/`
-2. Скопировать `123.py` в `Documents/houdini21.0/scripts/`
-3. В Houdini: **Windows → Python Panel Editor → New Panel**
-   - Label: `TG Notifier`, Name: `tg_notifier`
-   - Script: `exec(open(r"C:/Users/<user>/houdini_tg_notifier/tg_notifier_panel.py", encoding="utf-8").read())`
+### 1. Создать Telegram бота
 
-## Скрипты для Octane ROP (Pre/Post Render)
+1. Написать [@BotFather](https://t.me/BotFather) → `/newbot` → скопировать **Token**
+2. Написать боту любое сообщение
+3. Узнать **Chat ID** — написать [@userinfobot](https://t.me/userinfobot), он ответит твоим ID
+   - Для группы/канала: добавить бота туда, открыть `https://api.telegram.org/bot<TOKEN>/getUpdates`
+
+### 2. Скопировать файлы
+
+```
+C:\Users\<user>\houdini_tg_notifier\
+  tg_notifier.py
+  tg_notifier_panel.py
+
+C:\Users\<user>\Documents\houdini21.0\scripts\
+  123.py
+```
+
+### 3. Добавить Python Panel
+
+1. Houdini → **Windows → Python Panel Editor → (+) New Panel**
+2. Заполнить:
+   - **Label:** `TG Notifier`
+   - **Name:** `tg_notifier`
+3. Вкладка **Interface** → поле **Script**, вставить:
+   ```python
+   exec(open(r"C:/Users/<user>/houdini_tg_notifier/tg_notifier_panel.py", encoding="utf-8").read())
+   ```
+4. **Apply → Accept**
+5. Открыть: **Windows → TG Notifier**
+
+### 4. Первый запуск
+
+1. Вставить **Bot Token** и **Chat ID** (кнопка `+` для добавления)
+2. Нажать **Test All** — придёт тестовое сообщение
+3. Нажать **Save**
+4. Нажать **Start Monitor**
+
+---
+
+## Скрипты для Octane ROP
 
 Вставить в параметры ноды `OctaneRenderSetup` → вкладка **Scripts** → тип **Python**:
 
-### Pre-Render Script
+### Pre-Render Script (старт рендера)
+
 ```python
 import sys, os
 _plugin = os.path.join(os.path.expanduser('~'), 'houdini_tg_notifier')
@@ -52,19 +102,20 @@ if s.get('send_render', True):
     except: out_path = 'unknown'
     out_name = os.path.basename(out_path)
     text = (
-        '🎬 <b>РЕНДЕР ЗАПУЩЕН</b>\n'
-        '━━━━━━━━━━━━━━━━\n'
-        '🕐 <b>Время:</b>  <code>{ts}</code>\n'
-        '📁 <b>Сцена:</b>  <i>{scene}</i>\n'
-        '🎥 <b>Камера:</b> <code>{cam}</code>\n'
-        '🖼 <b>Кадры:</b>  <code>{frames}</code>\n'
-        '💾 <b>Файл:</b>   <code>{name}</code>\n'
-        '📂 <b>Путь:</b>\n<code>{path}</code>'
+        '\U0001f3ac <b>РЕНДЕР ЗАПУЩЕН</b>\n'
+        '\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n'
+        '\U0001f550 <b>Время:</b>  <code>{ts}</code>\n'
+        '\U0001f4c1 <b>Сцена:</b>  <i>{scene}</i>\n'
+        '\U0001f3a5 <b>Камера:</b> <code>{cam}</code>\n'
+        '\U0001f5bc <b>Кадры:</b>  <code>{frames}</code>\n'
+        '\U0001f4be <b>Файл:</b>   <code>{name}</code>\n'
+        '\U0001f4c2 <b>Путь:</b>\n<code>{path}</code>'
     ).format(ts=ts, scene=scene, cam=cam, frames=frames, name=out_name, path=out_path)
     send_telegram(s['bot_token'], s.get('chat_ids', []), text)
 ```
 
-### Post-Render Script
+### Post-Render Script (завершение рендера)
+
 ```python
 import sys, os
 _plugin = os.path.join(os.path.expanduser('~'), 'houdini_tg_notifier')
@@ -82,19 +133,58 @@ if s.get('send_render', True):
     except: out_path = 'unknown'
     out_name = os.path.basename(out_path)
     text = (
-        '✅ <b>РЕНДЕР ЗАВЕРШЁН</b>\n'
-        '━━━━━━━━━━━━━━━━\n'
-        '🕐 <b>Время:</b> <code>{ts}</code>\n'
-        '📁 <b>Сцена:</b> <i>{scene}</i>\n'
-        '💾 <b>Файл:</b>  <code>{name}</code>\n'
-        '📂 <b>Путь:</b>\n<code>{path}</code>'
+        '\u2705 <b>РЕНДЕР ЗАВЕРШЁН</b>\n'
+        '\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\u2501\n'
+        '\U0001f550 <b>Время:</b> <code>{ts}</code>\n'
+        '\U0001f4c1 <b>Сцена:</b> <i>{scene}</i>\n'
+        '\U0001f4be <b>Файл:</b>  <code>{name}</code>\n'
+        '\U0001f4c2 <b>Путь:</b>\n<code>{path}</code>'
     ).format(ts=ts, scene=scene, name=out_name, path=out_path)
     send_telegram(s['bot_token'], s.get('chat_ids', []), text)
 ```
 
+---
+
+## Пример сообщений в Telegram
+
+**Старт:**
+```
+🎬 РЕНДЕР ЗАПУЩЕН
+━━━━━━━━━━━━━━━━
+🕐 Время:  14:05:11
+📁 Сцена:  project_v04.hip
+🎥 Камера: /obj/cam1
+🖼 Кадры:  1 - 240 (240 кадров)
+💾 Файл:   beauty.$F4.exr
+📂 Путь:
+D:/renders/project/beauty.$F4.exr
+```
+
+**Завершение:**
+```
+✅ РЕНДЕР ЗАВЕРШЁН
+━━━━━━━━━━━━━━━━
+🕐 Время: 17:42:05
+📁 Сцена: project_v04.hip
+💾 Файл:  beauty.0240.exr
+📂 Путь:
+D:/renders/project/beauty.0240.exr
+```
+
+**Ошибка:**
+```
+[X] ERROR
+Time: 14:23:07
+Scene: project_v04.hip
+AttributeError: 'NoneType' object has no attribute 'geometry'
+```
+
+---
+
 ## Настройки
 
-`~/.houdini_tg_notifier.json`:
+Хранятся в `~/.houdini_tg_notifier.json`, редактируются через UI панели:
+
 ```json
 {
   "bot_token": "123456:ABC-DEF...",
@@ -109,8 +199,32 @@ if s.get('send_render', True):
 }
 ```
 
+| Параметр | Описание |
+|---|---|
+| `bot_token` | Токен от @BotFather |
+| `chat_ids` | Список chat ID (чаты, группы, каналы) |
+| `send_errors` | Отправлять Error / Fatal |
+| `send_warnings` | Отправлять Warning |
+| `send_messages` | Отправлять Message |
+| `send_render` | Отправлять события рендера |
+| `cooldown` | Пауза (сек) между повторами одного сообщения |
+| `monitor_enabled` | Автозапуск мониторинга при старте Houdini |
+
+---
+
+## Как работает мониторинг
+
+- **Houdini 19.5+** — `hou.logging.LogSink` (нативный callback, нулевая задержка)
+- **Старше** — fallback через опрос `$HOUDINI_TEMP_DIR/houdini.log` каждые 2 сек
+- **Octane рендер** — через Pre/Post Render Script в параметрах ноды `OctaneRenderSetup`
+
+---
+
 ## Совместимость
 
-- Houdini 19.5+ / Octane::OctaneRenderSetup
-- Windows / Linux / macOS
-- Python 3.9+
+| | |
+|---|---|
+| Houdini | 19.5+ (LogSink) / 18.x (fallback) |
+| Octane | Любая версия для Houdini |
+| ОС | Windows, Linux, macOS |
+| Python | 3.9+ |
