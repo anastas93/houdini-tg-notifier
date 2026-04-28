@@ -139,6 +139,7 @@ class TGNotifier:
         self._poll_thread.start()
 
     def _on_entry(self, severity, message, source=''):
+        self.settings = load_settings()  # всегда актуальные настройки
         s = self.settings
         with self._lock:
             self._history.append((severity, message))
