@@ -32,6 +32,7 @@ class TGNotifierPanel(QtWidgets.QWidget):
         title.setStyleSheet("font-size: 13px; font-weight: bold;")
         root.addWidget(title)
 
+        # ── Бот ──
         grp = QtWidgets.QGroupBox("Telegram Bot")
         form = QtWidgets.QFormLayout(grp)
         self.le_token = QtWidgets.QLineEdit()
@@ -40,10 +41,11 @@ class TGNotifierPanel(QtWidgets.QWidget):
         form.addRow("Bot Token:", self.le_token)
         root.addWidget(grp)
 
+        # ── Чаты ──
         grp_chats = QtWidgets.QGroupBox("Chat IDs")
         cl = QtWidgets.QVBoxLayout(grp_chats)
         self.chat_list = QtWidgets.QListWidget()
-        self.chat_list.setFixedHeight(90)
+        self.chat_list.setFixedHeight(80)
         cl.addWidget(self.chat_list)
         row_add = QtWidgets.QHBoxLayout()
         self.le_new_chat = QtWidgets.QLineEdit()
@@ -51,44 +53,60 @@ class TGNotifierPanel(QtWidgets.QWidget):
         btn_add = QtWidgets.QPushButton("+")
         btn_add.setFixedWidth(30)
         btn_add.clicked.connect(self._add_chat)
-        btn_del = QtWidgets.QPushButton("-")
+        btn_del = QtWidgets.QPushButton("−")
         btn_del.setFixedWidth(30)
         btn_del.clicked.connect(self._del_chat)
-        btn_test_all = QtWidgets.QPushButton("Test All")
-        btn_test_all.clicked.connect(self._test_send)
+        btn_test = QtWidgets.QPushButton("Test All")
+        btn_test.clicked.connect(self._test_send)
         row_add.addWidget(self.le_new_chat)
         row_add.addWidget(btn_add)
         row_add.addWidget(btn_del)
-        row_add.addWidget(btn_test_all)
+        row_add.addWidget(btn_test)
         cl.addLayout(row_add)
         root.addWidget(grp_chats)
 
+        # ── Фильтры ──
         grp2 = QtWidgets.QGroupBox("What to send")
         fl = QtWidgets.QVBoxLayout(grp2)
-        self.cb_errors   = QtWidgets.QCheckBox("Errors (Error / Fatal)")
-        self.cb_warnings = QtWidgets.QCheckBox("Warnings")
-        self.cb_messages = QtWidgets.QCheckBox("Messages")
-        self.cb_render   = QtWidgets.QCheckBox("Render events (start + complete)")
-        self.cb_scene    = QtWidgets.QCheckBox("Include scene name")
-        for cb in (self.cb_errors, self.cb_warnings, self.cb_messages, self.cb_render, self.cb_scene):
+        self.cb_errors   = QtWidgets.QCheckBox("🔴 Errors (Error / Fatal)")
+        self.cb_warnings = QtWidgets.QCheckBox("🟡 Warnings")
+        self.cb_messages = QtWidgets.QCheckBox("ℹ️  Messages")
+        self.cb_render   = QtWidgets.QCheckBox("🎬 Render events (start + complete)")
+        self.cb_preview  = QtWidgets.QCheckBox("🖼 Send frame preview after render")
+        self.cb_scene    = QtWidgets.QCheckBox("📁 Include scene name")
+        for cb in (self.cb_errors, self.cb_warnings, self.cb_messages,
+                   self.cb_render, self.cb_preview, self.cb_scene):
             fl.addWidget(cb)
         root.addWidget(grp2)
 
+        # ── Опции ──
         grp3 = QtWidgets.QGroupBox("Options")
         gl = QtWidgets.QFormLayout(grp3)
+
         self.sp_cooldown = QtWidgets.QSpinBox()
         self.sp_cooldown.setRange(1, 3600)
         self.sp_cooldown.setSuffix(" sec")
         gl.addRow("Cooldown:", self.sp_cooldown)
+
+        self.sp_progress = QtWidgets.QSpinBox()
+        self.sp_progress.setRange(0, 1000)
+        self.sp_progress.setSuffix(" frames (0=off)")
+        self.sp_progress.setToolTip("Send frame progress every N frames")
+        gl.addRow("Frame progress:", self.sp_progress)
+
+        self.cb_polling = QtWidgets.QCheckBox("Enable bot polling (/status /stop /help)")
+        gl.addRow(self.cb_polling)
+
         root.addWidget(grp3)
 
+        # ── Кнопки ──
         row = QtWidgets.QHBoxLayout()
-        self.btn_toggle = QtWidgets.QPushButton("Start Monitor")
+        self.btn_toggle = QtWidgets.QPushButton("▶ Start Monitor")
         self.btn_toggle.setCheckable(True)
         self.btn_toggle.clicked.connect(self._toggle_monitor)
-        btn_save = QtWidgets.QPushButton("Save")
+        btn_save = QtWidgets.QPushButton("💾 Save")
         btn_save.clicked.connect(self._save)
-        btn_log = QtWidgets.QPushButton("Send Log")
+        btn_log = QtWidgets.QPushButton("📤 Send Log")
         btn_log.clicked.connect(self._send_last)
         row.addWidget(self.btn_toggle)
         row.addWidget(btn_save)
@@ -100,10 +118,11 @@ class TGNotifierPanel(QtWidgets.QWidget):
         root.addWidget(self.lbl_status)
         root.addStretch()
 
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
     def _add_chat(self):
         val = self.le_new_chat.text().strip()
-        if not val:
-            return
+        if not val: return
         existing = [self.chat_list.item(i).text() for i in range(self.chat_list.count())]
         if val not in existing:
             self.chat_list.addItem(val)
@@ -126,11 +145,14 @@ class TGNotifierPanel(QtWidgets.QWidget):
         self.cb_warnings.setChecked(s.get("send_warnings", True))
         self.cb_messages.setChecked(s.get("send_messages", True))
         self.cb_render.setChecked(s.get("send_render", True))
+        self.cb_preview.setChecked(s.get("send_preview", True))
         self.cb_scene.setChecked(s.get("scene_name_in_msg", True))
         self.sp_cooldown.setValue(s.get("cooldown", 15))
+        self.sp_progress.setValue(s.get("frame_progress_every", 10))
+        self.cb_polling.setChecked(s.get("bot_polling", False))
         active = self.notifier._active
         self.btn_toggle.setChecked(active)
-        self.btn_toggle.setText("Stop Monitor" if active else "Start Monitor")
+        self.btn_toggle.setText("⏹ Stop Monitor" if active else "▶ Start Monitor")
 
     def _collect(self):
         return dict(
@@ -140,50 +162,51 @@ class TGNotifierPanel(QtWidgets.QWidget):
             send_warnings=self.cb_warnings.isChecked(),
             send_messages=self.cb_messages.isChecked(),
             send_render=self.cb_render.isChecked(),
+            send_preview=self.cb_preview.isChecked(),
             scene_name_in_msg=self.cb_scene.isChecked(),
             cooldown=self.sp_cooldown.value(),
+            frame_progress_every=self.sp_progress.value(),
+            bot_polling=self.cb_polling.isChecked(),
         )
 
     def _save(self):
         self.notifier.update_settings(**self._collect())
         n = len(self._get_chat_ids())
-        self._status("Settings saved ({} chat{})".format(n, "s" if n != 1 else ""), "green")
+        self._status("✅ Saved ({} chat{})".format(n, "s" if n != 1 else ""), "green")
 
     def _toggle_monitor(self, checked):
         self.notifier.update_settings(**self._collect())
         if checked:
             ok, msg = self.notifier.start()
-            self.btn_toggle.setText("Stop Monitor")
+            self.btn_toggle.setText("⏹ Stop Monitor")
             self._status(msg, "green" if ok else "orange")
         else:
             self.notifier.stop()
-            self.btn_toggle.setText("Start Monitor")
-            self._status("Monitor stopped", "gray")
+            self.btn_toggle.setText("▶ Start Monitor")
+            self._status("⏹ Monitor stopped", "gray")
 
     def _test_send(self):
         self.notifier.update_settings(**self._collect())
         s = self.notifier.settings
         ids = s.get("chat_ids", [])
         if not ids:
-            self._status("No chat IDs added", "red")
+            self._status("❌ No chat IDs", "red")
             return
         ok, err = send_telegram(
             s["bot_token"], ids,
-            "<b>Houdini TG Notifier</b>\nTest message - OK! Chats: {}".format(len(ids))
+            "🤖 <b>Houdini TG Notifier</b>\nTest OK! Chats: {}".format(len(ids))
         )
-        self._status(
-            "Test sent to {} chat(s)".format(len(ids)) if ok else "Error: {}".format(err),
-            "green" if ok else "red"
-        )
+        self._status("✅ Test sent to {} chat(s)".format(len(ids)) if ok else "❌ " + err,
+                     "green" if ok else "red")
 
     def _send_last(self):
         ok, msg = self.notifier.send_last_errors(n=15)
-        self._status(msg, "green" if ok else "red")
+        self._status("✅ " + msg if ok else "❌ " + msg, "green" if ok else "red")
 
     def _refresh_status(self):
         active = self.notifier._active
         self.btn_toggle.setChecked(active)
-        self.btn_toggle.setText("Stop Monitor" if active else "Start Monitor")
+        self.btn_toggle.setText("⏹ Stop Monitor" if active else "▶ Start Monitor")
 
     def _status(self, text, color="gray"):
         self.lbl_status.setText(text)
