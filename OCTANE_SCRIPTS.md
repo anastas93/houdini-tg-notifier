@@ -4,7 +4,9 @@
 
 ---
 
-## Pre-Render Script (старт + прогресс)
+## Pre-Render Script
+
+Отправляет сообщение о старте рендера и запускает фоновый поток прогресса.
 
 ```python
 import sys, os, time, threading
@@ -106,40 +108,73 @@ if s.get('send_render', True):
 
 ---
 
-## Post-Render Script (завершение + превью)
+## Post-Render Script
+
+Отправляет сообщение о завершении с временем рендера и превью последнего кадра.
 
 ```python
-import sys, os
+import sys, os, time
 _plugin = os.path.join(os.path.expanduser('~'), 'houdini_tg_notifier')
 if _plugin not in sys.path:
     sys.path.insert(0, _plugin)
-from tg_notifier import get_notifier, send_telegram
+from tg_notifier import get_notifier, send_telegram, send_photo_telegram, _render_state, _resolve_path
 from datetime import datetime
 import hou as _hou
+
 s = get_notifier().settings
 if s.get('send_render', True):
+    node = _hou.pwd()
     ts = datetime.now().strftime('%H:%M:%S')
     scene = os.path.basename(_hou.hipFile.name())
-    node = _hou.pwd()
+
     try: out_path = node.parm('HO_img_fileName').eval()
-    except: out_path = 'unknown'
+    except: out_path = _render_state.get('out_path', 'unknown')
     out_name = os.path.basename(out_path)
+
+    # Время рендера
+    elapsed_str = ''
+    if _render_state.get('start_time'):
+        elapsed = int(time.time() - _render_state['start_time'])
+        h, rem = divmod(elapsed, 3600)
+        m, sec = divmod(rem, 60)
+        if h > 0:
+            elapsed_str = '\n⏱ <b>Время рендера:</b> <code>{}ч {}м {}с</code>'.format(h, m, sec)
+        else:
+            elapsed_str = '\n⏱ <b>Время рендера:</b> <code>{}м {}с</code>'.format(m, sec)
+
+    _render_state['active'] = False
+
     text = (
         '✅ <b>РЕНДЕР ЗАВЕРШЁН</b>\n'
         '━━━━━━━━━━━━━━━━\n'
         '🕐 <b>Время:</b> <code>{ts}</code>\n'
         '📁 <b>Сцена:</b> <i>{scene}</i>\n'
         '💾 <b>Файл:</b>  <code>{name}</code>\n'
-        '📂 <b>Путь:</b>\n<code>{path}</code>'
-    ).format(ts=ts, scene=scene, name=out_name, path=out_path)
+        '📂 <b>Путь:</b>\n<code>{path}</code>{elapsed}'
+    ).format(ts=ts, scene=scene, name=out_name, path=out_path, elapsed=elapsed_str)
+
     send_telegram(s['bot_token'], s.get('chat_ids', []), text)
+
+    # Превью последнего кадра
+    if s.get('send_preview', True):
+        try:
+            f2 = _render_state.get('f2', int(node.parm('f2').eval()))
+            img_file = _resolve_path(out_path, f2)
+            if img_file and os.path.exists(img_file):
+                caption = '🖼 {} | {}'.format(out_name, scene)
+                send_photo_telegram(s['bot_token'], s.get('chat_ids', []), img_file, caption)
+            else:
+                print('[TG Notifier] Preview: file not found:', img_file)
+        except Exception as e:
+            print('[TG Notifier] Preview error:', e)
+
 ```
 
 ---
 
 ## Post-Frame Script
 
-> ⚠️ Octane не вызывает Post-Frame пофреймово — прогресс реализован через фоновый поток в Pre-Render скрипте (см. выше). Post-Frame Script не нужен.
+> ⚠️ Octane не вызывает Post-Frame пофреймово — прогресс реализован через фоновый поток в Pre-Render скрипте. Post-Frame Script не нужен.
 
 ---
 
@@ -153,9 +188,9 @@ if s.get('send_render', True):
 📁 Сцена:  project_v04.hip
 🎥 Камера: /obj/cam1
 🖼 Кадры:  1 - 240 (240 кадров)
-💾 Файл:   beauty.$F4.exr
+💾 Файл:   Aeromon.ugol._2_all.all.0001
 📂 Путь:
-D:/renders/project/beauty.$F4.exr
+F:/render/Aeromon.ugol._2_all.all.0001
 ```
 
 **Прогресс (каждые N кадров):**
@@ -169,27 +204,35 @@ D:/renders/project/beauty.$F4.exr
 🔮 Осталось: 22м 10с
 ```
 
-**Завершение:**
+**Завершение + превью:**
 ```
 ✅ РЕНДЕР ЗАВЕРШЁН
 ━━━━━━━━━━━━━━━━
 🕐 Время: 17:42:05
 📁 Сцена: project_v04.hip
-💾 Файл:  beauty.0240.exr
+💾 Файл:  Aeromon.ugol._2_all.all.0240
 📂 Путь:
-D:/renders/project/beauty.0240.exr
+F:/render/Aeromon.ugol._2_all.all.0240
 ⏱ Время рендера: 44м 30с
 ```
-*(+ фото превью последнего кадра)*
+*(+ фото превью последнего кадра EXR → PNG)*
 
 ---
 
 ## Команды бота
 
-Включить в панели TG Notifier → **Enable bot polling**.
+Включить в панели TG Notifier → **Enable bot polling** → Save → перезапустить мониторинг.
 
 | Команда | Действие |
 |---|---|
-| `/status` | Статус рендера, кадр, время |
+| `/status` | Статус рендера, текущий кадр, время |
 | `/stop` | Остановить рендер |
 | `/help` | Список команд |
+
+---
+
+## Примечания
+
+- **Путь файла:** Octane сохраняет файлы как `basename.NNNN.exr` — плагин автоматически находит последний кадр
+- **Превью EXR:** конвертируется через OpenImageIO (встроен в Houdini), tone-map linear→sRGB, масштаб до 1280px
+- **Прогресс:** фоновый поток опрашивает `hou.frame()` каждые 5 секунд, отправляет каждые N кадров (настраивается в панели)
