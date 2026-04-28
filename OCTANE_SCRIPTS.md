@@ -4,10 +4,10 @@
 
 ---
 
-## Pre-Render Script (старт рендера)
+## Pre-Render Script (старт + прогресс)
 
 ```python
-import sys, os, time
+import sys, os, time, threading
 _plugin = os.path.join(os.path.expanduser('~'), 'houdini_tg_notifier')
 if _plugin not in sys.path:
     sys.path.insert(0, _plugin)
@@ -29,16 +29,15 @@ if s.get('send_render', True):
         f2 = int(node.parm('f2').eval())
         f3 = node.parm('f3').eval()
         total = int((f2 - f1) / f3) + 1
-        frames = '{} - {} ({} кадров)'.format(f1, f2, total)
+        frames_str = '{} - {} ({} кадров)'.format(f1, f2, total)
     except:
         f1, f2, total = 1, 1, 1
-        frames = 'unknown'
+        frames_str = 'unknown'
 
     try: out_path = node.parm('HO_img_fileName').eval()
     except: out_path = 'unknown'
     out_name = os.path.basename(out_path)
 
-    # Сохраняем состояние рендера
     _render_state.update({
         'active': True,
         'start_time': time.time(),
@@ -59,132 +58,88 @@ if s.get('send_render', True):
         '🖼 <b>Кадры:</b>  <code>{frames}</code>\n'
         '💾 <b>Файл:</b>   <code>{name}</code>\n'
         '📂 <b>Путь:</b>\n<code>{path}</code>'
-    ).format(ts=ts, scene=scene, cam=cam, frames=frames, name=out_name, path=out_path)
-
+    ).format(ts=ts, scene=scene, cam=cam, frames=frames_str, name=out_name, path=out_path)
     send_telegram(s['bot_token'], s.get('chat_ids', []), text)
+
+    # Прогресс-поток: опрашивает hou.frame() каждые N секунд
+    every = s.get('frame_progress_every', 10)
+    if every > 0:
+        def _progress_loop():
+            last_sent_frame = f1 - 1
+            while _render_state.get('active'):
+                time.sleep(5)
+                try:
+                    cur = int(_hou.frame())
+                    _render_state['current_frame'] = cur
+                    done = cur - f1 + 1
+                    total_fr = max(f2 - f1 + 1, 1)
+                    # Отправляем каждые every кадров
+                    if cur != last_sent_frame and done % every == 0 and cur <= f2:
+                        last_sent_frame = cur
+                        pct = int(done / total_fr * 100)
+                        elapsed = int(time.time() - _render_state['start_time'])
+                        per_frame = elapsed / max(done, 1)
+                        eta = int(per_frame * (total_fr - done))
+                        m_e, s_e = divmod(elapsed, 60)
+                        m_eta, s_eta = divmod(eta, 60)
+                        filled = int(pct / 10)
+                        bar = '█' * filled + '░' * (10 - filled)
+                        s2 = get_notifier().settings
+                        msg = (
+                            '🖼 <b>ПРОГРЕСС РЕНДЕРА</b>\n'
+                            '━━━━━━━━━━━━━━━━\n'
+                            '📁 <b>Сцена:</b> <i>{scene}</i>\n'
+                            '🎞 <b>Кадр:</b> <code>{cur} / {f2} ({pct}%)</code>\n'
+                            '<code>[{bar}]</code>\n'
+                            '⏱ <b>Прошло:</b> <code>{me}м {se}с</code>\n'
+                            '🔮 <b>Осталось:</b> <code>{meta}м {seta}с</code>'
+                        ).format(
+                            scene=scene, cur=cur, f2=f2, pct=pct, bar=bar,
+                            me=m_e, se=s_e, meta=m_eta, seta=s_eta
+                        )
+                        send_telegram(s2['bot_token'], s2.get('chat_ids', []), msg)
+                except Exception:
+                    pass
+        threading.Thread(target=_progress_loop, daemon=True).start()
+
 ```
 
 ---
 
-## Post-Render Script (завершение рендера)
-
-```python
-import sys, os, time
-_plugin = os.path.join(os.path.expanduser('~'), 'houdini_tg_notifier')
-if _plugin not in sys.path:
-    sys.path.insert(0, _plugin)
-from tg_notifier import get_notifier, send_telegram, send_photo_telegram, _render_state, _resolve_path
-from datetime import datetime
-import hou as _hou
-
-s = get_notifier().settings
-if s.get('send_render', True):
-    node = _hou.pwd()
-    ts = datetime.now().strftime('%H:%M:%S')
-    scene = os.path.basename(_hou.hipFile.name())
-
-    try: out_path = node.parm('HO_img_fileName').eval()
-    except: out_path = _render_state.get('out_path', 'unknown')
-    out_name = os.path.basename(out_path)
-
-    # Время рендера
-    elapsed_str = ''
-    if _render_state.get('start_time'):
-        elapsed = int(time.time() - _render_state['start_time'])
-        h, rem = divmod(elapsed, 3600)
-        m, s_sec = divmod(rem, 60)
-        if h > 0:
-            elapsed_str = '\n⏱ <b>Время рендера:</b> <code>{}ч {}м {}с</code>'.format(h, m, s_sec)
-        else:
-            elapsed_str = '\n⏱ <b>Время рендера:</b> <code>{}м {}с</code>'.format(m, s_sec)
-
-    # Сбрасываем состояние
-    _render_state['active'] = False
-
-    text = (
-        '✅ <b>РЕНДЕР ЗАВЕРШЁН</b>\n'
-        '━━━━━━━━━━━━━━━━\n'
-        '🕐 <b>Время:</b> <code>{ts}</code>\n'
-        '📁 <b>Сцена:</b> <i>{scene}</i>\n'
-        '💾 <b>Файл:</b>  <code>{name}</code>\n'
-        '📂 <b>Путь:</b>\n<code>{path}</code>{elapsed}'
-    ).format(ts=ts, scene=scene, name=out_name, path=out_path, elapsed=elapsed_str)
-
-    send_telegram(s['bot_token'], s.get('chat_ids', []), text)
-
-    # Превью последнего кадра
-    if s.get('send_preview', True):
-        try:
-            f2 = _render_state.get('f2', int(node.parm('f2').eval()))
-            img_file = _resolve_path(out_path, f2)
-            if img_file and os.path.exists(img_file):
-                caption = '🖼 {} | {}'.format(out_name, scene)
-                send_photo_telegram(s['bot_token'], s.get('chat_ids', []), img_file, caption)
-        except Exception as e:
-            print('[TG Notifier] Preview error:', e)
-```
-
----
-
-## Post-Frame Script (прогресс по кадрам)
+## Post-Render Script (завершение + превью)
 
 ```python
 import sys, os
 _plugin = os.path.join(os.path.expanduser('~'), 'houdini_tg_notifier')
 if _plugin not in sys.path:
     sys.path.insert(0, _plugin)
-from tg_notifier import get_notifier, send_telegram, _render_state
+from tg_notifier import get_notifier, send_telegram
 from datetime import datetime
 import hou as _hou
-
 s = get_notifier().settings
-every = s.get('frame_progress_every', 10)
-if not s.get('send_render', True) or every == 0:
-    pass
-else:
+if s.get('send_render', True):
+    ts = datetime.now().strftime('%H:%M:%S')
+    scene = os.path.basename(_hou.hipFile.name())
     node = _hou.pwd()
-    try: frame = int(_hou.frame())
-    except: frame = 0
-
-    _render_state['current_frame'] = frame
-
-    f1 = _render_state.get('f1', 1)
-    f2 = _render_state.get('f2', frame)
-    done = frame - f1 + 1
-    total = max(f2 - f1 + 1, 1)
-    pct = int(done / total * 100)
-
-    if done % every == 0 or frame == f2:
-        # Время на кадр и оставшееся
-        elapsed_str = ''
-        eta_str = ''
-        if _render_state.get('start_time') and done > 0:
-            elapsed = int(__import__('time').time() - _render_state['start_time'])
-            per_frame = elapsed / done
-            eta = int(per_frame * (total - done))
-            m_e, s_e = divmod(elapsed, 60)
-            m_eta, s_eta = divmod(eta, 60)
-            elapsed_str = '\n⏱ <b>Прошло:</b> <code>{}м {}с</code>'.format(m_e, s_e)
-            eta_str = '\n🔮 <b>Осталось:</b> <code>{}м {}с</code>'.format(m_eta, s_eta)
-
-        # Прогресс-бар
-        filled = int(pct / 10)
-        bar = '█' * filled + '░' * (10 - filled)
-
-        text = (
-            '🖼 <b>ПРОГРЕСС РЕНДЕРА</b>\n'
-            '━━━━━━━━━━━━━━━━\n'
-            '📁 <b>Сцена:</b> <i>{scene}</i>\n'
-            '🎞 <b>Кадр:</b> <code>{frame} / {f2} ({pct}%)</code>\n'
-            '<code>[{bar}]</code>'
-            '{elapsed}{eta}'
-        ).format(
-            scene=_render_state.get('scene', os.path.basename(_hou.hipFile.name())),
-            frame=frame, f2=f2, pct=pct, bar=bar,
-            elapsed=elapsed_str, eta=eta_str
-        )
-        send_telegram(s['bot_token'], s.get('chat_ids', []), text)
+    try: out_path = node.parm('HO_img_fileName').eval()
+    except: out_path = 'unknown'
+    out_name = os.path.basename(out_path)
+    text = (
+        '✅ <b>РЕНДЕР ЗАВЕРШЁН</b>\n'
+        '━━━━━━━━━━━━━━━━\n'
+        '🕐 <b>Время:</b> <code>{ts}</code>\n'
+        '📁 <b>Сцена:</b> <i>{scene}</i>\n'
+        '💾 <b>Файл:</b>  <code>{name}</code>\n'
+        '📂 <b>Путь:</b>\n<code>{path}</code>'
+    ).format(ts=ts, scene=scene, name=out_name, path=out_path)
+    send_telegram(s['bot_token'], s.get('chat_ids', []), text)
 ```
+
+---
+
+## Post-Frame Script
+
+> ⚠️ Octane не вызывает Post-Frame пофреймово — прогресс реализован через фоновый поток в Pre-Render скрипте (см. выше). Post-Frame Script не нужен.
 
 ---
 
@@ -203,7 +158,7 @@ else:
 D:/renders/project/beauty.$F4.exr
 ```
 
-**Прогресс:**
+**Прогресс (каждые N кадров):**
 ```
 🖼 ПРОГРЕСС РЕНДЕРА
 ━━━━━━━━━━━━━━━━
@@ -231,7 +186,7 @@ D:/renders/project/beauty.0240.exr
 
 ## Команды бота
 
-Включить polling в панели TG Notifier → **Bot Polling** → On.
+Включить в панели TG Notifier → **Enable bot polling**.
 
 | Команда | Действие |
 |---|---|
