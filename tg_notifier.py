@@ -176,24 +176,58 @@ def send_photo_telegram(token, chat_ids, image_path, caption=""):
 
 
 def _resolve_path(template, frame):
-    """Подставляет переменные Houdini в шаблон пути файла."""
-    path = template
-    path = re.sub(r"\$F(\d*)", lambda m: "{:0{}d}".format(frame, int(m.group(1)) if m.group(1) else 1), path)
-    path = re.sub(r"\$OCTANE_PASS", "*", path)
-    path = re.sub(r"\$OCTANE_LAYER", "*", path)
+    """Находит реальный файл рендера. Поддерживает Octane-стиль (путь без расширения)."""
+    if not template or template == "unknown":
+        return None
+
+    EXTENSIONS = [".exr", ".png", ".jpg", ".tiff", ".tif", ".hdr", ".pic", ".tga"]
+
+    # Путь уже готовый
+    if os.path.exists(template):
+        return template
+
+    # Octane: путь без расширения, добавляем .NNNN.ext
+    base = re.sub(r"\.\d+$", "", template)  # убираем .0001 если есть
+    for ext in EXTENSIONS:
+        # Точный кадр
+        candidate = "{}.{:04d}{}".format(base, frame, ext)
+        if os.path.exists(candidate):
+            return candidate
+        # Последний доступный кадр
+        matches = sorted(glob.glob(base + ".*" + ext))
+        if matches:
+            return matches[-1]
+
+    # Houdini переменные
+    p = template
+    p = re.sub(r"\$F(\d*)", lambda m: "{:0{}d}".format(frame, int(m.group(1)) if m.group(1) else 1), p)
+    for var in ("$OCTANE_PASS", "$OCTANE_LAYER", "$OS"):
+        p = p.replace(var, "*")
     try:
-        path = path.replace("$OS", "*")
-        path = path.replace("$HIPNAME", os.path.splitext(os.path.basename(hou.hipFile.name()))[0])
-        path = path.replace("$HIP", os.path.dirname(hou.hipFile.name()))
+        p = p.replace("$HIPNAME", os.path.splitext(os.path.basename(hou.hipFile.name()))[0])
+        p = p.replace("$HIP", os.path.dirname(hou.hipFile.name()))
     except Exception:
         pass
-    if "*" in path:
-        matches = sorted(glob.glob(path))
+    if "*" in p:
+        matches = sorted(glob.glob(p))
         if matches:
             beauty = [m for m in matches if "beauty" in m.lower()]
             return beauty[0] if beauty else matches[0]
-    elif os.path.exists(path):
-        return path
+    elif os.path.exists(p):
+        return p
+
+    # Последний файл в папке
+    try:
+        folder = os.path.dirname(template)
+        if os.path.isdir(folder):
+            all_files = []
+            for ext in EXTENSIONS:
+                all_files.extend(glob.glob(os.path.join(folder, "*" + ext)))
+            if all_files:
+                return sorted(all_files)[-1]
+    except Exception:
+        pass
+
     return None
 
 
